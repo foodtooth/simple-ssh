@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+[[ -d ../configs ]] || mkdir ../configs
+cd ../configs
+
+if [[ $# -eq 0 ]]
+then
+    PS3="Choose the SSH configuration you need: "; \
+        select choice in *:*; do
+            if [[ -n "$choice" ]]; then
+                ./$choice; break;
+            fi
+            echo "Please re-pick!"
+        done
+else
+    echo "You'd better copy the password first for later use."
+    port=
+    hostname=
+    username=
+    password=
+    appendfilename=
+    while :; do
+        case $1 in
+            -afn)
+                if [[ -n "$2" && "$2" != -?* ]]; then
+                    appendfilename=$2
+                    echo appendfilename: $appendfilename
+                    shift 2
+                    continue
+                else
+                    printf 'Error: "-afn" requires a non-empty option argument.\n' >&2
+                    exit 1
+                fi
+                ;;
+            -p|--port)
+                if [[ -n "$2" && "$2" != -?* ]]; then
+                    port=$2
+                    echo port: $port
+                    shift 2
+                    continue
+                else
+                    printf 'Error: "-p|--port" requires a non-empty option argument.\n' >&2
+                    exit 1
+                fi
+                ;;
+            -u)
+                if [[ -n "$2" && "$2" != -?* ]]; then
+                    username=$2
+                    echo username: $username
+                    shift 2
+                    continue
+                else
+                    printf 'Error: "-u" requires a non-empty option argument.\n' >&2
+                    exit 1
+                fi
+                ;;
+            -h)
+                if [[ -n "$2" && "$2" != -?* ]]; then
+                    hostname=$2
+                    echo hostname: $hostname
+                    shift 2
+                    continue
+                else
+                    printf 'Error: "-h" requires a non-empty option argument.\n' >&2
+                    exit 1
+                fi
+                ;;
+            --) shift; break ;;
+            -?*) printf "Error Exit: Unknown option %s\n" "$1"
+                exit 1
+                ;;
+            *) break ;;
+        esac
+        shift
+    done
+
+    if [[ -z "$hostname" ]]; then
+        echo "Error Pattern! Exit!"
+        exit 1
+    fi
+    if [[ -z "$username" ]]; then
+        username=$USER
+    fi
+    if [[ -z "$port" ]]; then
+        port=22
+    fi
+
+    filename="$hostname:$username"
+    if [[ -n "$appendfilename" ]]; then
+        filename="$filename:$appendfilename"
+    fi
+
+    if [[ -s "$filename" ]]; then
+        echo Configuration $filename Found. Invoke $filename:
+        ./$filename
+        exit 0
+    else
+        ssh -p $port -Y $username@$hostname
+        sshstatus=$?
+        if [[ "$sshstatus" = "0" ]]; then
+            echo Connection Established.
+            read -s -p "Input password once again:" password
+            cat > $filename << EOL
+#!/usr/bin/expect -f
+
+set timeout 30
+
+set hostname $hostname
+set username $username
+set port $port
+set password $password
+
+spawn ssh -p \$port -Y \$username@\$hostname
+expect {
+    "yes/no" { send "yes\r"; exp_continue }
+    "assword" { send "\$password\r" }
+}
+interact
+EOL
+            printf "\nConfiguration file <%s> created.\n" "$filename" >&2
+            chmod 744 $filename
+        else
+            echo Connection Failed. Error Code: $sshstatus
+        fi
+    fi
+fi
